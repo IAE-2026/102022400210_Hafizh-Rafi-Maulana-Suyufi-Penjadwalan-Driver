@@ -4,6 +4,9 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Schedule;
+use App\Services\IaeSsoService;
+use App\Services\SoapAuditClient;
+use App\Services\ScheduleEventPublisher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use OpenApi\Attributes as OA;
@@ -22,14 +25,28 @@ use OpenApi\Attributes as OA;
     description: "Local Development Server"
 )]
 #[OA\SecurityScheme(
+    securityScheme: "BearerAuth",
+    type: "http",
+    scheme: "bearer",
+    bearerFormat: "JWT",
+    description: "JWT dari IAE SSO (https://iae-sso.virtualfri.id). Login sebagai warga21@ktp.iae.id"
+)]
+#[OA\SecurityScheme(
     securityScheme: "X-IAE-KEY",
     type: "apiKey",
     in: "header",
     name: "X-IAE-KEY",
-    description: "API Key menggunakan NIM Mahasiswa (102022400210)"
+    description: "Fallback API Key (Tugas 2): NIM Mahasiswa (102022400210)"
 )]
 class ScheduleController extends Controller
 {
+    public function __construct(
+        private readonly IaeSsoService          $ssoService,
+        private readonly SoapAuditClient        $soapAuditClient,
+        private readonly ScheduleEventPublisher $eventPublisher
+    ) {
+    }
+
     /**
      * GET /api/v1/schedules
      * Mengambil daftar seluruh jadwal operasional driver.
@@ -40,7 +57,7 @@ class ScheduleController extends Controller
         description: "Mengambil daftar seluruh jadwal operasional driver.",
         operationId: "getSchedules",
         tags: ["Schedules"],
-        security: [["X-IAE-KEY" => []]],
+        security: [["BearerAuth" => []], ["X-IAE-KEY" => []]],
         responses: [
             new OA\Response(
                 response: 200,
@@ -48,11 +65,11 @@ class ScheduleController extends Controller
             ),
             new OA\Response(
                 response: 401,
-                description: "Unauthorized - Invalid or missing API Key",
+                description: "Unauthorized - Invalid or missing auth token",
                 content: new OA\JsonContent(
                     properties: [
                         new OA\Property(property: "status", type: "string", example: "error"),
-                        new OA\Property(property: "message", type: "string", example: "Unauthorized. Invalid or missing API Key (X-IAE-KEY)."),
+                        new OA\Property(property: "message", type: "string", example: "Unauthorized. Sertakan Bearer JWT (SSO) atau X-IAE-KEY header."),
                         new OA\Property(property: "errors", type: "string", nullable: true, example: null),
                     ]
                 )
@@ -64,12 +81,12 @@ class ScheduleController extends Controller
         $schedules = Schedule::all();
 
         return response()->json([
-            'status' => 'success',
+            'status'  => 'success',
             'message' => 'Data retrieved successfully',
-            'data' => $schedules,
-            'meta' => [
+            'data'    => $schedules,
+            'meta'    => [
                 'service_name' => 'Penjadwalan-Driver-Service',
-                'api_version' => 'v1',
+                'api_version'  => 'v1',
             ],
         ], 200);
     }
@@ -84,7 +101,7 @@ class ScheduleController extends Controller
         description: "Mengambil data spesifik jadwal shift berdasarkan ID.",
         operationId: "getScheduleById",
         tags: ["Schedules"],
-        security: [["X-IAE-KEY" => []]],
+        security: [["BearerAuth" => []], ["X-IAE-KEY" => []]],
         parameters: [
             new OA\Parameter(
                 name: "id",
@@ -112,11 +129,11 @@ class ScheduleController extends Controller
             ),
             new OA\Response(
                 response: 401,
-                description: "Unauthorized - Invalid or missing API Key",
+                description: "Unauthorized",
                 content: new OA\JsonContent(
                     properties: [
                         new OA\Property(property: "status", type: "string", example: "error"),
-                        new OA\Property(property: "message", type: "string", example: "Unauthorized. Invalid or missing API Key (X-IAE-KEY)."),
+                        new OA\Property(property: "message", type: "string", example: "Unauthorized."),
                         new OA\Property(property: "errors", type: "string", nullable: true, example: null),
                     ]
                 )
@@ -129,19 +146,19 @@ class ScheduleController extends Controller
 
         if (!$schedule) {
             return response()->json([
-                'status' => 'error',
+                'status'  => 'error',
                 'message' => 'Schedule not found',
-                'errors' => null,
+                'errors'  => null,
             ], 404);
         }
 
         return response()->json([
-            'status' => 'success',
+            'status'  => 'success',
             'message' => 'Data retrieved successfully',
-            'data' => $schedule,
-            'meta' => [
+            'data'    => $schedule,
+            'meta'    => [
                 'service_name' => 'Penjadwalan-Driver-Service',
-                'api_version' => 'v1',
+                'api_version'  => 'v1',
             ],
         ], 200);
     }
@@ -149,79 +166,77 @@ class ScheduleController extends Controller
     /**
      * POST /api/v1/schedules
      * Menambah data penugasan atau jadwal baru untuk driver.
+     * Transaksi kritis: memicu SOAP Audit + Event Publishing ke IAE server.
      */
     #[OA\Post(
         path: "/api/v1/schedules",
         summary: "Create a new schedule",
-        description: "Menambah data penugasan atau jadwal baru untuk driver.",
+        description: "Menambah jadwal baru. Hanya role admin_operasional dan dispatcher yang diizinkan. Memicu SOAP audit ke IAE Legacy System dan publish event ke iae.central.exchange.",
         operationId: "createSchedule",
         tags: ["Schedules"],
-        security: [["X-IAE-KEY" => []]],
+        security: [["BearerAuth" => []], ["X-IAE-KEY" => []]],
         requestBody: new OA\RequestBody(
             required: true,
             content: new OA\JsonContent(
                 required: ["driver_name", "vehicle_id", "plate_number", "schedule_date", "shift"],
                 properties: [
-                    new OA\Property(property: "driver_name", type: "string", example: "Budi Santoso"),
-                    new OA\Property(property: "vehicle_id", type: "integer", example: 1),
-                    new OA\Property(property: "plate_number", type: "string", example: "B 1234 ABC"),
-                    new OA\Property(property: "schedule_date", type: "string", format: "date", example: "2026-05-15"),
-                    new OA\Property(property: "shift", type: "string", enum: ["pagi", "siang", "malam"], example: "pagi"),
-                    new OA\Property(property: "status", type: "string", enum: ["active", "completed", "cancelled"], example: "active"),
-                    new OA\Property(property: "notes", type: "string", nullable: true, example: "Rute Jakarta - Bandung"),
+                    new OA\Property(property: "driver_name",   type: "string",  example: "Budi Santoso"),
+                    new OA\Property(property: "vehicle_id",    type: "integer", example: 1),
+                    new OA\Property(property: "plate_number",  type: "string",  example: "B 1234 ABC"),
+                    new OA\Property(property: "schedule_date", type: "string",  format: "date", example: "2026-05-15"),
+                    new OA\Property(property: "shift",         type: "string",  enum: ["pagi", "siang", "malam"], example: "pagi"),
+                    new OA\Property(property: "status",        type: "string",  enum: ["active", "completed", "cancelled"], example: "active"),
+                    new OA\Property(property: "notes",         type: "string",  nullable: true, example: "Rute Jakarta - Bandung"),
                 ]
             )
         ),
         responses: [
-            new OA\Response(
-                response: 201,
-                description: "Schedule created successfully"
-            ),
-            new OA\Response(
-                response: 422,
-                description: "Validation Error",
+            new OA\Response(response: 201, description: "Schedule created successfully"),
+            new OA\Response(response: 403, description: "Forbidden - Role tidak diizinkan POST"),
+            new OA\Response(response: 422, description: "Validation Error",
                 content: new OA\JsonContent(
                     properties: [
-                        new OA\Property(property: "status", type: "string", example: "error"),
+                        new OA\Property(property: "status",  type: "string", example: "error"),
                         new OA\Property(property: "message", type: "string", example: "Validation failed"),
-                        new OA\Property(property: "errors", type: "object"),
+                        new OA\Property(property: "errors",  type: "object"),
                     ]
                 )
             ),
-            new OA\Response(
-                response: 401,
-                description: "Unauthorized - Invalid or missing API Key",
-                content: new OA\JsonContent(
-                    properties: [
-                        new OA\Property(property: "status", type: "string", example: "error"),
-                        new OA\Property(property: "message", type: "string", example: "Unauthorized. Invalid or missing API Key (X-IAE-KEY)."),
-                        new OA\Property(property: "errors", type: "string", nullable: true, example: null),
-                    ]
-                )
-            ),
+            new OA\Response(response: 401, description: "Unauthorized"),
         ]
     )]
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'driver_name' => 'required|string|max:255',
-            'vehicle_id' => 'required|integer',
-            'plate_number' => 'required|string|max:20',
+            'driver_name'   => 'required|string|max:255',
+            'vehicle_id'    => 'required|integer',
+            'plate_number'  => 'required|string|max:20',
             'schedule_date' => 'required|date',
-            'shift' => 'required|string|in:pagi,siang,malam',
-            'status' => 'sometimes|string|in:active,completed,cancelled',
-            'notes' => 'nullable|string',
+            'shift'         => 'required|string|in:pagi,siang,malam',
+            'status'        => 'sometimes|string|in:active,completed,cancelled',
+            'notes'         => 'nullable|string',
         ]);
 
-        $schedule = Schedule::create($validated);
+        // SOAP Audit — non-blocking
+        $auditResult = $this->soapAuditClient->auditScheduleCreation(
+            $schedule->toArray(),
+            $request->input('sso_user_id') ?? 'system',
+            $request->input('sso_role')    ?? 'authenticated'
+        );
+
+        // Publish event schedule.created — non-blocking
+        $this->eventPublisher->publishScheduleCreated($schedule->toArray());
 
         return response()->json([
-            'status' => 'success',
+            'status'  => 'success',
             'message' => 'Schedule created successfully',
-            'data' => $schedule,
-            'meta' => [
-                'service_name' => 'Penjadwalan-Driver-Service',
-                'api_version' => 'v1',
+            'data'    => $schedule,
+            'meta'    => [
+                'service_name'  => 'Penjadwalan-Driver-Service',
+                'api_version'   => 'v1',
+                'auth_method'   => $request->input('auth_method', 'unknown'),
+                'audit_receipt' => $auditResult['receipt_number'] ?? null,
+                'audit_status'  => $auditResult['status']         ?? 'SKIPPED',
             ],
         ], 201);
     }

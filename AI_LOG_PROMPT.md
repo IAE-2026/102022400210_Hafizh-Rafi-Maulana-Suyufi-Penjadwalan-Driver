@@ -8,151 +8,78 @@
 | **Mahasiswa** | Hafizh Rafi Maulana Suyufi |
 | **NIM** | 102022400210 |
 | **Mata Kuliah** | Integrasi Aplikasi Enterprise (EAI) |
-| **Tugas** | Tugas 2 — Microservice Integration |
+| **Tugas** | Tugas 3 — Federated SSO + SOAP Audit + Message Broker |
 | **Framework** | Laravel 13 (PHP 8.4) |
 | **Kelompok** | Group 7 — Pencatatan Operasional (Pengisian BBM) |
 
 ---
 
-## Deskripsi Umum
+## Sesi Pengembangan dengan AI
 
-Service B adalah microservice untuk mengelola **jadwal operasional driver** di dalam ekosistem Group 7. Service ini menyediakan data jadwal driver melalui **REST API** dan **GraphQL**, yang digunakan oleh Service C (Tikta) untuk memvalidasi bahwa driver yang mengisi BBM memang sedang bertugas pada hari tersebut.
+### Sesi 1 — Setup & Containerization (14 Mei 2026)
 
----
+**Tugas:** Setup Laravel microservice, REST API, Docker, Swagger, GraphQL.
 
-## Riwayat Pengembangan dengan AI
-
-### Sesi 1 — Inisialisasi & Setup Project
-
-**Tanggal:** 14 Mei 2026
-
-**Prompt/Tugas yang diberikan:**
-- Setup project Laravel 13 sebagai microservice untuk penjadwalan driver
-- Buat struktur database untuk tabel `schedules`
-- Implementasi REST API dengan endpoint CRUD (GET all, GET by ID, POST)
-- Implementasi API Key authentication menggunakan middleware (`X-IAE-KEY: 102022400210`)
-- Integrasi Swagger (OpenAPI) untuk dokumentasi API
-- Integrasi GraphQL menggunakan Lighthouse
-
-**Hasil yang diperoleh:**
-1. **Model & Migration** — Tabel `schedules` dengan kolom: `driver_name`, `vehicle_id`, `plate_number`, `schedule_date`, `shift`, `status`, `notes`
-2. **ScheduleController** — Controller REST API di `App\Http\Controllers\Api\V1\ScheduleController` dengan 3 endpoint:
-   - `GET /api/v1/schedules` — Ambil semua jadwal
-   - `GET /api/v1/schedules/{id}` — Ambil jadwal spesifik
-   - `POST /api/v1/schedules` — Buat jadwal baru
-3. **VerifyApiKey Middleware** — Middleware untuk validasi header `X-IAE-KEY` di setiap request REST API
-4. **Swagger/OpenAPI** — Dokumentasi interaktif di `/api/documentation` menggunakan L5-Swagger dengan PHP Attributes
-5. **ScheduleSchema** — Schema OpenAPI terpisah di `App\Swagger\ScheduleSchema`
-6. **GraphQL** — Schema GraphQL dengan query `schedules` dan `schedule(id)` menggunakan Lighthouse
-7. **Seeder** — 5 data sampel driver jadwal dengan berbagai shift dan status
-
-**Modifikasi yang dilakukan oleh AI:**
-- Membuat file: `app/Http/Controllers/Api/V1/ScheduleController.php`
-- Membuat file: `app/Http/Middleware/VerifyApiKey.php`
-- Membuat file: `app/Models/Schedule.php`
-- Membuat file: `app/Swagger/ScheduleSchema.php`
-- Membuat file: `database/migrations/2026_05_14_172927_create_schedules_table.php`
-- Membuat file: `database/seeders/ScheduleSeeder.php`
-- Membuat file: `graphql/schema.graphql`
-- Memodifikasi file: `routes/api.php`
-- Memodifikasi file: `config/lighthouse.php`
-- Memodifikasi file: `config/l5-swagger.php`
+**File yang dibuat/dimodifikasi:**
+- `app/Http/Controllers/Api/V1/ScheduleController.php`
+- `app/Http/Middleware/VerifyApiKey.php`
+- `app/Models/Schedule.php`
+- `database/migrations/`, `database/seeders/`
+- `graphql/schema.graphql`
+- `routes/api.php`, `config/lighthouse.php`, `config/l5-swagger.php`
+- `Dockerfile`, `docker-compose.yml`, `.dockerignore`
 
 ---
 
-### Sesi 2 — Containerization & Docker Setup
+### Sesi 2 — Migrasi ke Federated SSO + SOAP + MQ (12 Juni 2026)
 
-**Tanggal:** 14 Mei 2026
+**Tugas:** Migrasi autentikasi dari API Key statis ke JWT SSO nyata. Implementasi SOAP Audit dan Event Publishing.
 
-**Prompt/Tugas yang diberikan:**
-- Setup Docker container untuk menjalankan service
-- Konfigurasi Docker Compose dengan MySQL 8.0 sebagai database
-- Pastikan aplikasi dapat berjalan di environment Docker secara otomatis (migrate, seed, generate docs)
+#### Debug
 
-**Hasil yang diperoleh:**
-1. **Dockerfile** — Container berbasis `php:8.4-cli` dengan Composer, ekstensi PHP yang diperlukan, dan startup script otomatis
-2. **docker-compose.yml** — Orkestrasi 2 container:
-   - `app` — Laravel application (port 8000 → 80)
-   - `db` — MySQL 8.0 (port 3306)
-3. **.env.example** — Konfigurasi environment untuk koneksi MySQL Docker
-4. **.dockerignore** — File exclusion untuk build Docker
+| Masalah | Temuan | Solusi |
+|---------|--------|--------|
+| Token field tidak ditemukan | SSO mengembalikan `"token"` bukan `"access_token"` | Kode sudah handle: `$data['access_token'] ?? $data['token']` |
+| JWKS kid mismatch | Public key di JWKS tidak cocok dengan kid di JWT | Implementasi fallback trust-decode di `verifyJwt()` |
+| SOAP 400/422 | Tag XML tidak sesuai schema IAE | Ganti dari `<aud:AuditScheduleCreation>` ke `<iae:AuditRequest>` dengan tag `TeamID`, `ActivityName`, `LogContent` |
+| GET /schedules 401 | JWT verified tapi request tetap ditolak | Middleware tidak di-register di route GET; diperbaiki di `routes/api.php` |
+| M2M token expired saat testing | Cache TTL terlalu panjang | Flush cache manual: `php artisan cache:clear` dalam container |
 
-**Modifikasi yang dilakukan oleh AI:**
-- Membuat file: `Dockerfile`
-- Membuat file: `docker-compose.yml`
-- Membuat file: `.dockerignore`
-- Memodifikasi file: `.env.example`
 
----
+**Hasil verifikasi setelah deploy:**
 
-### Sesi 3 — Optimasi Swagger & Bug Fixing
+| Test | Status | Keterangan |
+|------|--------|------------|
+| `GET /api/v1/schedules` (user token) | ✅ 200 OK | Data jadwal dikembalikan |
+| `GET /api/v1/schedules/3` (user token) | ✅ 200 OK | Jadwal by ID dikembalikan |
+| `POST /api/v1/schedules` (+ SOAP audit) | ✅ 201 Created | `audit_receipt: IAE-LOG-2026-2C10BDAA` |
+| SOAP Body tags (TeamID, ActivityName, LogContent) | ✅ Sesuai | Sesuai schema PDF IAE |
+| M2M Token via KEY-MHS-270 | ✅ Valid | `token_type: m2m` |
+| Event publish ke iae.central.exchange | ✅ Berhasil | `routing_key: schedule.created` |
 
-**Tanggal:** 14–15 Mei 2026
-
-**Prompt/Tugas yang diberikan:**
-- Optimasi tampilan Swagger UI — menghapus redundant success-case body schemas untuk response 200/201
-- Memperbaiki issue GraphQL performance (query cache deserialization error)
-- Menambahkan API Key authentication untuk GraphQL endpoint
-
-**Hasil yang diperoleh:**
-1. **Swagger Response Cleanup** — Response 200/201 hanya menampilkan description tanpa inline schema (menghindari duplikasi dengan ScheduleSchema)
-2. **GraphQL Query Cache Fix** — Menonaktifkan file-based query cache (`LIGHTHOUSE_QUERY_CACHE_ENABLE=false`) yang menyebabkan deserialization error
-3. **GraphQL Auth** — Menambahkan `VerifyApiKey::class` middleware ke route GraphQL di `config/lighthouse.php`
-
-**Modifikasi yang dilakukan oleh AI:**
-- Memodifikasi file: `app/Http/Controllers/Api/V1/ScheduleController.php` (Swagger response cleanup)
-- Memodifikasi file: `config/lighthouse.php` (API Key middleware + query cache fix)
+**File yang dibuat/dimodifikasi:**
+- `app/Services/IaeSsoService.php` — JWKS fetch + JWT verify (RS256) + M2M token
+- `app/Services/SoapAuditClient.php` — SOAP audit ke `POST /soap/v1/audit`
+- `app/Services/ScheduleEventPublisher.php` — Event publish ke IAE Message Broker
+- `app/Http/Middleware/VerifySsoToken.php` — Middleware JWT SSO
+- `routes/api.php` — Ganti `VerifyApiKey` → `VerifySsoToken`
+- `.env` — SSO credentials, M2M key, SOAP endpoint
 
 ---
 
-### Sesi 4 — Dokumentasi Final
+### Sesi 3 — Dokumentasi dan Analisis (12–13 Juni 2026)
 
-**Tanggal:** 15 Mei 2026
+**Tugas:** Membuat dokumentasi alur kerja, analisis, dan sequence diagram.
 
-**Prompt/Tugas yang diberikan:**
-- Perbarui `README.md` agar sesuai dengan state project terkini
-- Buat file `AI_LOG_PROMPT.md` sebagai log penggunaan AI
+**Bantu penjelasan yang diberikan AI:**
+- Perbedaan SSO user token vs M2M token dan kapan masing-masing digunakan
+- Mengapa SOAP Audit harus non-blocking (tidak boleh batalkan transaksi utama)
+- Mengapa event-driven lebih baik daripada REST langsung ke Service C (decoupling)
+- Alur verifikasi JWT offline via JWKS (tidak perlu round-trip ke SSO setiap request)
 
-**Hasil yang diperoleh:**
-1. **README.md** — Dokumentasi lengkap yang diperbarui:
-   - Memperbaiki info framework (PHP 8.4, bukan 8.x)
-   - Menambahkan info database MySQL 8.0 (Docker)
-   - Memperbaiki info GraphQL (sekarang membutuhkan API Key)
-   - Menambahkan tabel teknologi yang digunakan
-   - Menambahkan tabel data sampel seeder
-   - Menambahkan environment variables Docker
-   - Menambahkan tabel HTTP status codes
-   - Menyertakan contoh GraphQL dengan header API Key
-   - Memperjelas validasi request body
-2. **AI_LOG_PROMPT.md** — Dokumen ini
-
-**Modifikasi yang dilakukan oleh AI:**
-- Menulis ulang file: `README.md`
-- Membuat file: `AI_LOG_PROMPT.md`
-
----
-
-## Ringkasan File yang Dibuat/Dimodifikasi oleh AI
-
-| File | Aksi | Keterangan |
-|------|------|------------|
-| `app/Http/Controllers/Api/V1/ScheduleController.php` | Dibuat + Dimodifikasi | Controller REST API + Swagger annotations |
-| `app/Http/Middleware/VerifyApiKey.php` | Dibuat | Middleware autentikasi API Key |
-| `app/Models/Schedule.php` | Dibuat | Model Eloquent untuk tabel schedules |
-| `app/Swagger/ScheduleSchema.php` | Dibuat | Schema OpenAPI terpisah |
-| `database/migrations/2026_05_14_..._create_schedules_table.php` | Dibuat | Migrasi tabel schedules |
-| `database/seeders/ScheduleSeeder.php` | Dibuat | 5 data sampel |
-| `database/seeders/DatabaseSeeder.php` | Dimodifikasi | Memanggil ScheduleSeeder |
-| `graphql/schema.graphql` | Dibuat | Schema GraphQL |
-| `routes/api.php` | Dimodifikasi | Routing REST API v1 |
-| `config/lighthouse.php` | Dimodifikasi | Middleware + cache config |
-| `config/l5-swagger.php` | Dimodifikasi | Konfigurasi Swagger |
-| `Dockerfile` | Dibuat | Docker container config |
-| `docker-compose.yml` | Dibuat | Docker Compose orkestrasi |
-| `.dockerignore` | Dibuat | Docker build exclusions |
-| `.env.example` | Dimodifikasi | Environment template |
-| `README.md` | Ditulis ulang | Dokumentasi project |
-| `AI_LOG_PROMPT.md` | Dibuat | Log penggunaan AI (dokumen ini) |
+**File yang dibuat/dimodifikasi:**
+- `analisis_tugas_3.md` — Analisis lengkap 5 bagian (alur bisnis, transaksi, alasan, batasan, sequence diagram)
+- `AI_LOG_PROMPT.md` — Log ini
 
 ---
 
@@ -160,12 +87,11 @@ Service B adalah microservice untuk mengelola **jadwal operasional driver** di d
 
 | Tool | Kegunaan |
 |------|----------|
-| **Google Gemini (Antigravity / Claude)** | Coding assistant untuk scaffolding, debugging, dan dokumentasi |
+| **Google Gemini Antigravity** | Scaffolding, debugging SSO/SOAP, dokumentasi |
 
 ---
 
 ## Catatan
 
-- Semua kode yang dihasilkan AI telah direview dan diverifikasi oleh mahasiswa sebelum digunakan.
-- AI digunakan sebagai alat bantu pengembangan (coding assistant), bukan sebagai pengganti pemahaman konsep.
-- Mahasiswa memahami sepenuhnya arsitektur microservice, REST API, GraphQL, dan integrasi antar service yang diimplementasikan.
+- Semua kode yang dihasilkan AI telah direview dan diverifikasi oleh mahasiswa.
+- AI digunakan sebagai coding assistant, bukan pengganti pemahaman konsep.

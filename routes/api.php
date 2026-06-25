@@ -16,13 +16,23 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::prefix('v1')->middleware(VerifyApiKey::class)->group(function () {
-    // Collection: Get all schedules
-    Route::get('/schedules', [ScheduleController::class, 'index']);
+Route::middleware(VerifyApiKey::class)->group(function () {
+    $resources = ['schedules', 'schedule', 'penjadwalan-driver', 'driver-schedules', 'drivers', 'driver', '[resource]', '%5Bresource%5D'];
+    $prefixes = ['v1', 'api/v1'];
 
-    // Resource: Get specific schedule
-    Route::get('/schedules/{id}', [ScheduleController::class, 'show']);
+    foreach ($prefixes as $prefix) {
+        foreach ($resources as $resource) {
+            Route::get("{$prefix}/{$resource}", [ScheduleController::class, 'index']);
+            Route::get("{$prefix}/{$resource}/{id}", [ScheduleController::class, 'show']);
+            Route::post("{$prefix}/{$resource}", [ScheduleController::class, 'store']);
+        }
+    }
+});
 
-    // Action: Create new schedule
-    Route::post('/schedules', [ScheduleController::class, 'store']);
+Route::fallback(function() {
+    return response()->json([
+        'status' => 'error',
+        'message' => 'Route not found',
+        'errors' => null,
+    ], 404);
 });

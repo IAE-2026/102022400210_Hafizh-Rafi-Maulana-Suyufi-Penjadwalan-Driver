@@ -16,7 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->renderable(function (\Illuminate\Validation\ValidationException $e, $request) {
-            if ($request->expectsJson() || $request->is('api/*')) {
+            if ($request->expectsJson() || $request->is('api/*') || $request->is('*v1*')) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Validation failed',
@@ -26,12 +26,42 @@ return Application::configure(basePath: dirname(__DIR__))
         });
 
         $exceptions->renderable(function (\Illuminate\Database\Eloquent\ModelNotFoundException $e, $request) {
-            if ($request->expectsJson() || $request->is('api/*')) {
+            if ($request->expectsJson() || $request->is('api/*') || $request->is('*v1*')) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Resource not found',
                     'errors' => null,
                 ], 404);
+            }
+        });
+
+        $exceptions->renderable(function (\Symfony\Component\HttpKernel\Exception\NotFoundHttpException $e, $request) {
+            if ($request->expectsJson() || $request->is('api/*') || $request->is('*v1*')) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Route not found',
+                    'errors' => null,
+                ], 404);
+            }
+        });
+
+        $exceptions->renderable(function (\Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException $e, $request) {
+            if ($request->expectsJson() || $request->is('api/*') || $request->is('*v1*')) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Method not allowed',
+                    'errors' => null,
+                ], 405);
+            }
+        });
+        
+        $exceptions->renderable(function (\Illuminate\Auth\AuthenticationException $e, $request) {
+            if ($request->expectsJson() || $request->is('api/*') || $request->is('*v1*')) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Unauthorized. Invalid or missing API Key (X-IAE-KEY).',
+                    'errors' => null,
+                ], 401);
             }
         });
     })->create();

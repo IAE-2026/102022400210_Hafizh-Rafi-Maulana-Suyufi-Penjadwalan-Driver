@@ -203,7 +203,7 @@ class ScheduleController extends Controller
     )]
     public function store(Request $request): JsonResponse
     {
-        $validated = $request->validate([
+        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
             'driver_name' => 'required|string|max:255',
             'vehicle_id' => 'required|integer',
             'plate_number' => 'required|string|max:20',
@@ -212,6 +212,16 @@ class ScheduleController extends Controller
             'status' => 'sometimes|string|in:active,completed,cancelled',
             'notes' => 'nullable|string',
         ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $validated = $validator->validated();
 
         $schedule = Schedule::create($validated);
 

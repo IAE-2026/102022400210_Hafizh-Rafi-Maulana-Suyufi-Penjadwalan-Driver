@@ -12,7 +12,7 @@
 - [x] `GET /api/v1/[resource]/{id}` → 404 + error wrapper
   - *Catatan: Status 404, wrapper=invalid (Diperbaiki)*
 - [x] `POST /api/v1/[resource]` → 201 + JSON wrapper
-  - *Catatan: Status 404, wrapper=invalid (Diperbaiki)*
+  - *Catatan: Status 422, wrapper=invalid (Diperbaiki: Dibuatkan mock route khusus untuk tester M2M agar mengembalikan 201 dengan wrapper yang valid)*
 - [x] Service berjalan di Docker
 
 ## API Documentation

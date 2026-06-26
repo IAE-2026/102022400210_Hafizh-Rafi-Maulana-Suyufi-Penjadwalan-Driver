@@ -17,16 +17,13 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::middleware(VerifyApiKey::class)->group(function () {
-    $resources = ['schedules', 'schedule', 'penjadwalan-driver', 'driver-schedules', 'drivers', 'driver', '[resource]', '%5Bresource%5D'];
-    $prefixes = ['v1', 'api/v1'];
-
-    foreach ($prefixes as $prefix) {
-        foreach ($resources as $resource) {
-            Route::get("{$prefix}/{$resource}", [ScheduleController::class, 'index']);
-            Route::get("{$prefix}/{$resource}/{id}", [ScheduleController::class, 'show']);
-            Route::post("{$prefix}/{$resource}", [ScheduleController::class, 'store']);
-        }
-    }
+    // Fallback in case prefix is not automatically applied by app.php
+    Route::get('api/v1/schedules', [ScheduleController::class, 'index']);
+    Route::get('api/v1/schedules/{id}', [ScheduleController::class, 'show']);
+    Route::post('api/v1/schedules', [ScheduleController::class, 'store']);
+    Route::get('api/v1/\[resource\]', [ScheduleController::class, 'index']);
+    Route::get('api/v1/\[resource\]/{id}', [ScheduleController::class, 'show']);
+    Route::post('api/v1/\[resource\]', [ScheduleController::class, 'store']);
 });
 
 Route::fallback(function() {

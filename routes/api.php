@@ -17,7 +17,6 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::middleware(VerifyApiKey::class)->group(function () {
-    // Fallback in case prefix is not automatically applied by app.php
     Route::get('api/v1/schedules', [ScheduleController::class, 'index']);
     Route::get('api/v1/schedules/{id}', [ScheduleController::class, 'show']);
     Route::post('api/v1/schedules', [ScheduleController::class, 'store']);
